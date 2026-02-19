@@ -1,0 +1,1217 @@
+openapi: 3.0.3
+info:
+  title: WhatsApp Multiagente Platform API
+  version: 1.0.0
+  description: >
+    API para plataforma web multiagente de WhatsApp con RBAC, 2FA, dashboard,
+    backups, reportes, conectores MCP y chat de IA multi-proveedor.
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:3001
+    description: Local
+tags:
+  - name: Auth
+  - name: WhatsAppAgents
+  - name: Conversations
+  - name: Messages
+  - name: Dashboard
+  - name: Reports
+  - name: Backups
+  - name: AI
+  - name: MCP
+  - name: Skills
+  - name: Webhooks
+
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesion
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login correcto, puede requerir 2FA
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/2fa/verify:
+    post:
+      tags: [Auth]
+      summary: Verificar codigo 2FA
+      operationId: verify2fa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TwoFactorVerifyRequest"
+      responses:
+        "200":
+          description: Sesion autenticada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFactorVerifyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesion
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Sesion cerrada
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Perfil autenticado actual
+      operationId: me
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Perfil actual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/wa-agents:
+    get:
+      tags: [WhatsAppAgents]
+      summary: Listar agentes WhatsApp
+      operationId: listWhatsappAgents
+      description: ADMIN_TECH y SUPERVISOR ven todos. AGENT_OPERATIVE ve solo su scope.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Lista de agentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WAAgent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/wa-agents/{id}:
+    get:
+      tags: [WhatsAppAgents]
+      summary: Obtener detalle de un agente
+      operationId: getWhatsappAgent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agente encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WAAgent"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/wa-agents/{id}/config:
+    patch:
+      tags: [WhatsAppAgents]
+      summary: Actualizar configuracion tecnica de agente
+      operationId: patchWhatsappAgentConfig
+      description: Solo ADMIN_TECH.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WAAgentConfigPatch"
+      responses:
+        "200":
+          description: Configuracion actualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WAAgent"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/wa-agents/{id}/health:
+    get:
+      tags: [WhatsAppAgents]
+      summary: Estado tecnico del agente
+      operationId: getWhatsappAgentHealth
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Estado tecnico
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WAAgentHealth"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/conversations:
+    get:
+      tags: [Conversations]
+      summary: Buscar conversaciones
+      operationId: listConversations
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: agentId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [OPEN, CLOSED, PENDING]
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Lista paginada de conversaciones
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/conversations/{id}/messages:
+    get:
+      tags: [Conversations]
+      summary: Obtener mensajes de una conversacion
+      operationId: listConversationMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Mensajes de la conversacion
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/messages/send-text:
+    post:
+      tags: [Messages]
+      summary: Enviar mensaje de texto
+      operationId: sendTextMessage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTextRequest"
+      responses:
+        "202":
+          description: Mensaje aceptado para envio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundMessageAck"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/messages/send-media:
+    post:
+      tags: [Messages]
+      summary: Enviar mensaje con adjunto
+      operationId: sendMediaMessage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [conversationId, agentId, media]
+              properties:
+                conversationId:
+                  type: string
+                  format: uuid
+                agentId:
+                  type: string
+                  format: uuid
+                caption:
+                  type: string
+                media:
+                  type: string
+                  format: binary
+      responses:
+        "202":
+          description: Mensaje multimedia aceptado para envio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundMessageAck"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/webhooks/whatsapp:
+    post:
+      tags: [Webhooks]
+      summary: Webhook de proveedor WhatsApp
+      operationId: whatsappWebhook
+      description: Endpoint publico para eventos entrantes. Valida firma y encola evento.
+      parameters:
+        - in: header
+          name: X-Provider-Signature
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Provider-Timestamp
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WhatsappWebhookEvent"
+      responses:
+        "200":
+          description: Evento recibido
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/dashboard/overview:
+    get:
+      tags: [Dashboard]
+      summary: KPI globales de operacion
+      operationId: dashboardOverview
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Resumen dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/dashboard/agents/{id}/kpi:
+    get:
+      tags: [Dashboard]
+      summary: KPI por agente
+      operationId: dashboardAgentKpi
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: KPI del agente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentKpi"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/reports/generate:
+    post:
+      tags: [Reports]
+      summary: Generar reporte
+      operationId: generateReport
+      description: ADMIN_TECH y SUPERVISOR.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportGenerateRequest"
+      responses:
+        "202":
+          description: Reporte en proceso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportGenerateResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/reports/{id}/download:
+    get:
+      tags: [Reports]
+      summary: Descargar reporte generado
+      operationId: downloadReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Archivo de reporte
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/backups/run:
+    post:
+      tags: [Backups]
+      summary: Ejecutar backup manual
+      operationId: runBackup
+      description: ADMIN_TECH y SUPERVISOR.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupRunRequest"
+      responses:
+        "202":
+          description: Backup en cola
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupJob"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/backups:
+    get:
+      tags: [Backups]
+      summary: Listar backups
+      operationId: listBackups
+      description: ADMIN_TECH y SUPERVISOR.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Historial de backups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BackupJob"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/backups/restore:
+    post:
+      tags: [Backups]
+      summary: Restaurar backup
+      operationId: restoreBackup
+      description: Solo ADMIN_TECH.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupRestoreRequest"
+      responses:
+        "202":
+          description: Restore en proceso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAcceptedResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/ai/chat:
+    post:
+      tags: [AI]
+      summary: Chat IA sin streaming
+      operationId: aiChat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIChatRequest"
+      responses:
+        "200":
+          description: Respuesta de modelo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIChatResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/ai/chat/stream:
+    post:
+      tags: [AI]
+      summary: Chat IA con streaming SSE
+      operationId: aiChatStream
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIChatRequest"
+      responses:
+        "200":
+          description: Flujo SSE de tokens
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/ai/providers:
+    get:
+      tags: [AI]
+      summary: Listar proveedores IA configurados
+      operationId: listAIProviders
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Lista de proveedores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AIProviderInfo"
+
+  /api/v1/ai/providers/test:
+    post:
+      tags: [AI]
+      summary: Probar conectividad de proveedor IA
+      operationId: testAIProvider
+      description: Solo ADMIN_TECH.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, model]
+              properties:
+                provider:
+                  type: string
+                model:
+                  type: string
+      responses:
+        "200":
+          description: Resultado prueba
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAcceptedResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/mcp/connections:
+    get:
+      tags: [MCP]
+      summary: Listar conexiones MCP
+      operationId: listMcpConnections
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Conexiones MCP
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MCPConnection"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [MCP]
+      summary: Registrar conexion MCP
+      operationId: createMcpConnection
+      description: Solo ADMIN_TECH.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MCPConnectionCreateRequest"
+      responses:
+        "201":
+          description: Conexion creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPConnection"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/skills/execute:
+    post:
+      tags: [Skills]
+      summary: Ejecutar skill registrada
+      operationId: executeSkill
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillExecuteRequest"
+      responses:
+        "200":
+          description: Resultado de skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillExecuteResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AgentId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConversationId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Solicitud invalida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: No autenticado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Sin permisos
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginResponse:
+      type: object
+      required: [requires2fa]
+      properties:
+        requires2fa:
+          type: boolean
+        challengeToken:
+          type: string
+          nullable: true
+        accessToken:
+          type: string
+          nullable: true
+        refreshToken:
+          type: string
+          nullable: true
+
+    TwoFactorVerifyRequest:
+      type: object
+      required: [challengeToken, code]
+      properties:
+        challengeToken:
+          type: string
+        code:
+          type: string
+          minLength: 6
+          maxLength: 10
+
+    TwoFactorVerifyResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+
+    MeResponse:
+      type: object
+      required: [id, email, role, agentScopes, mfaVerified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [ADMIN_TECH, SUPERVISOR, AGENT_OPERATIVE]
+        agentScopes:
+          type: array
+          items:
+            type: string
+            format: uuid
+        mfaVerified:
+          type: boolean
+
+    WAAgent:
+      type: object
+      required: [id, code, displayName, phoneNumber, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        displayName:
+          type: string
+        phoneNumber:
+          type: string
+        providerPhoneId:
+          type: string
+        status:
+          type: string
+          enum: [DISCONNECTED, CONNECTING, CONNECTED, ERROR]
+        createdAt:
+          type: string
+          format: date-time
+
+    WAAgentConfigPatch:
+      type: object
+      properties:
+        displayName:
+          type: string
+        rateLimitPerMinute:
+          type: integer
+          minimum: 1
+        autoReplyEnabled:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+
+    WAAgentHealth:
+      type: object
+      required: [agentId, connected, latencyMs, lastSyncAt]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        connected:
+          type: boolean
+        latencyMs:
+          type: integer
+        lastSyncAt:
+          type: string
+          format: date-time
+
+    Conversation:
+      type: object
+      required: [id, agentId, customerWaId, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+          format: uuid
+        customerWaId:
+          type: string
+        customerName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [OPEN, CLOSED, PENDING]
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ConversationListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total:
+          type: integer
+
+    Message:
+      type: object
+      required: [id, conversationId, direction, messageType, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [IN, OUT]
+        messageType:
+          type: string
+          enum: [TEXT, IMAGE, VIDEO, DOC, AUDIO]
+        textContent:
+          type: string
+          nullable: true
+        mediaUrl:
+          type: string
+          nullable: true
+        mimeType:
+          type: string
+          nullable: true
+        providerMessageId:
+          type: string
+          nullable: true
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    SendTextRequest:
+      type: object
+      required: [agentId, conversationId, text]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    OutboundMessageAck:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [QUEUED, PROCESSING]
+
+    DashboardOverview:
+      type: object
+      required:
+        - timestamp
+        - totalMessagesIn
+        - totalMessagesOut
+        - openConversations
+        - connectedAgents
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        totalMessagesIn:
+          type: integer
+        totalMessagesOut:
+          type: integer
+        openConversations:
+          type: integer
+        connectedAgents:
+          type: integer
+        errorRate:
+          type: number
+          format: float
+
+    AgentKpi:
+      type: object
+      required: [agentId, firstResponseAvgSec, messagesIn, messagesOut, openConversations]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        firstResponseAvgSec:
+          type: integer
+        messagesIn:
+          type: integer
+        messagesOut:
+          type: integer
+        openConversations:
+          type: integer
+        connectionStatus:
+          type: string
+
+    ReportGenerateRequest:
+      type: object
+      required: [type, from, to]
+      properties:
+        type:
+          type: string
+          enum: [AGENT_ACTIVITY, CONVERSATIONS, SLA, AI_USAGE]
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        agentId:
+          type: string
+          format: uuid
+          nullable: true
+        format:
+          type: string
+          enum: [CSV, PDF]
+          default: CSV
+
+    ReportGenerateResponse:
+      type: object
+      required: [reportId, status]
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED, PROCESSING]
+
+    BackupRunRequest:
+      type: object
+      required: [backupType]
+      properties:
+        backupType:
+          type: string
+          enum: [FULL, INCREMENTAL]
+        reason:
+          type: string
+
+    BackupJob:
+      type: object
+      required: [id, backupType, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        backupType:
+          type: string
+          enum: [FULL, INCREMENTAL]
+        status:
+          type: string
+          enum: [PENDING, RUNNING, DONE, FAILED]
+        artifactPath:
+          type: string
+          nullable: true
+        checksum:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    BackupRestoreRequest:
+      type: object
+      required: [backupId, targetEnvironment]
+      properties:
+        backupId:
+          type: string
+          format: uuid
+        targetEnvironment:
+          type: string
+          enum: [STAGING, PRODUCTION]
+        dryRun:
+          type: boolean
+          default: true
+
+    TaskAcceptedResponse:
+      type: object
+      required: [taskId, status]
+      properties:
+        taskId:
+          type: string
+        status:
+          type: string
+          enum: [QUEUED, PROCESSING]
+
+    AIChatRequest:
+      type: object
+      required: [provider, model, prompt]
+      properties:
+        provider:
+          type: string
+          enum: [openai, gemini, claude, grok, ollama, llama_cpp]
+        model:
+          type: string
+        prompt:
+          type: string
+        agentScopeId:
+          type: string
+          format: uuid
+          nullable: true
+        useTools:
+          type: boolean
+          default: false
+        temperature:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 2
+
+    AIChatResponse:
+      type: object
+      required: [sessionId, provider, model, output]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        provider:
+          type: string
+        model:
+          type: string
+        output:
+          type: string
+        usage:
+          type: object
+          properties:
+            inputTokens:
+              type: integer
+            outputTokens:
+              type: integer
+            estimatedCost:
+              type: number
+              format: float
+
+    AIProviderInfo:
+      type: object
+      required: [name, enabled]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        defaultModel:
+          type: string
+          nullable: true
+        health:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+
+    MCPConnection:
+      type: object
+      required: [id, name, endpoint, enabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        endpoint:
+          type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    MCPConnectionCreateRequest:
+      type: object
+      required: [name, endpoint]
+      properties:
+        name:
+          type: string
+        endpoint:
+          type: string
+        authType:
+          type: string
+          enum: [NONE, API_KEY, OAUTH]
+          default: NONE
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SkillExecuteRequest:
+      type: object
+      required: [skillId, input]
+      properties:
+        skillId:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        agentScopeId:
+          type: string
+          format: uuid
+          nullable: true
+
+    SkillExecuteResponse:
+      type: object
+      required: [skillId, output]
+      properties:
+        skillId:
+          type: string
+        output:
+          type: object
+          additionalProperties: true
+        auditId:
+          type: integer
+          format: int64
+
+    WhatsappWebhookEvent:
+      type: object
+      required: [eventType, agentExternalId, occurredAt, payload]
+      properties:
+        eventType:
+          type: string
+          enum: [message.received, message.status.updated, conversation.updated]
+        agentExternalId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
