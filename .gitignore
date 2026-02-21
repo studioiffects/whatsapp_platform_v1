@@ -24,6 +24,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
 # OS/editor
 .DS_Store
 Thumbs.db

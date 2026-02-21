@@ -1,0 +1,47 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: wa-managed-cert
+  namespace: __K8S_NAMESPACE__
+spec:
+  domains:
+    - __DOMAIN__
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: wa-frontend-config
+  namespace: __K8S_NAMESPACE__
+spec:
+  redirectToHttps:
+    enabled: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wa-ingress
+  namespace: __K8S_NAMESPACE__
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "__STATIC_IP_NAME__"
+    networking.gke.io/managed-certificates: "wa-managed-cert"
+    networking.gke.io/v1beta1.FrontendConfig: "wa-frontend-config"
+spec:
+  rules:
+    - host: __DOMAIN__
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: whatsapp-api-svc
+                port:
+                  number: 3001
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whatsapp-web-svc
+                port:
+                  number: 3000

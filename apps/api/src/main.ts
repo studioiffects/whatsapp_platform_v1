@@ -6,9 +6,13 @@ import { RequestIdInterceptor } from "./common/interceptors/request-id.intercept
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
 
   app.enableCors({
-    origin: ["http://localhost:3000"],
+    origin: corsOrigins,
     credentials: true,
   });
   app.setGlobalPrefix("api/v1");

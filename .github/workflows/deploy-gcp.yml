@@ -1,0 +1,287 @@
+name: Deploy GCP
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-gcp-prod
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight Deploy Inputs
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ secrets.GCP_REGION }}
+      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
+      GKE_NAMESPACE: ${{ secrets.GKE_NAMESPACE }}
+      IMAGE_API_REPO: ${{ secrets.IMAGE_API }}
+      IMAGE_WEB_REPO: ${{ secrets.IMAGE_WEB }}
+      GCP_SQL_INSTANCE_CONNECTION_NAME: ${{ secrets.GCP_SQL_INSTANCE_CONNECTION_NAME }}
+      APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+      GCP_STATIC_IP_NAME: ${{ secrets.GCP_STATIC_IP_NAME }}
+      GSA_API: ${{ secrets.GSA_API }}
+      GSA_WEB: ${{ secrets.GSA_WEB }}
+      WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required repository files
+        run: |
+          set -euo pipefail
+          required_files=(
+            ".github/workflows/deploy-gcp.yml"
+            "infra/gcp/k8s/namespace.yaml"
+            "infra/gcp/k8s/serviceaccounts.yaml"
+            "infra/gcp/k8s/storage-pvc.yaml"
+            "infra/gcp/k8s/api-deployment.yaml"
+            "infra/gcp/k8s/web-deployment.yaml"
+            "infra/gcp/k8s/services.yaml"
+            "infra/gcp/k8s/ingress.yaml"
+            "infra/gcp/k8s/hpa-web.yaml"
+            "apps/api/Dockerfile"
+            "apps/web/Dockerfile"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "${file}" ]]; then
+              echo "Missing required file: ${file}"
+              exit 1
+            fi
+          done
+
+      - name: Validate Kubernetes placeholders
+        run: |
+          set -euo pipefail
+          grep -R "__K8S_NAMESPACE__" infra/gcp/k8s >/dev/null
+          grep -R "__IMAGE_API__" infra/gcp/k8s >/dev/null
+          grep -R "__IMAGE_WEB__" infra/gcp/k8s >/dev/null
+          grep -R "__DOMAIN__" infra/gcp/k8s >/dev/null
+          grep -R "__STATIC_IP_NAME__" infra/gcp/k8s >/dev/null
+          grep -R "__GSA_API__" infra/gcp/k8s >/dev/null
+          grep -R "__GSA_WEB__" infra/gcp/k8s >/dev/null
+          grep -R "__GCP_SQL_INSTANCE_CONNECTION_NAME__" infra/gcp/k8s >/dev/null
+
+      - name: Validate required GitHub secrets are present
+        run: |
+          set -euo pipefail
+          missing=0
+          required_vars=(
+            GCP_PROJECT_ID
+            GCP_REGION
+            GKE_CLUSTER
+            GKE_NAMESPACE
+            IMAGE_API_REPO
+            IMAGE_WEB_REPO
+            GCP_SQL_INSTANCE_CONNECTION_NAME
+            APP_DOMAIN
+            GCP_STATIC_IP_NAME
+            GSA_API
+            GSA_WEB
+            WORKLOAD_IDENTITY_PROVIDER
+            GCP_SERVICE_ACCOUNT
+          )
+
+          for key in "${required_vars[@]}"; do
+            value="${!key:-}"
+            if [[ -z "${value}" ]]; then
+              echo "Missing required secret value: ${key}"
+              missing=1
+            fi
+          done
+
+          if [[ "${missing}" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Build preflight diagnostics report
+        if: always()
+        run: |
+          set -euo pipefail
+          REPORT="preflight-report.txt"
+          {
+            echo "Preflight Diagnostics Report"
+            echo "Generated at (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Run ID: ${GITHUB_RUN_ID}"
+            echo "Run Number: ${GITHUB_RUN_NUMBER}"
+            echo ""
+
+            echo "== Required Files =="
+            required_files=(
+              ".github/workflows/deploy-gcp.yml"
+              "infra/gcp/k8s/namespace.yaml"
+              "infra/gcp/k8s/serviceaccounts.yaml"
+              "infra/gcp/k8s/storage-pvc.yaml"
+              "infra/gcp/k8s/api-deployment.yaml"
+              "infra/gcp/k8s/web-deployment.yaml"
+              "infra/gcp/k8s/services.yaml"
+              "infra/gcp/k8s/ingress.yaml"
+              "infra/gcp/k8s/hpa-web.yaml"
+              "apps/api/Dockerfile"
+              "apps/web/Dockerfile"
+            )
+            for file in "${required_files[@]}"; do
+              if [[ -f "${file}" ]]; then
+                echo "[OK] ${file}"
+              else
+                echo "[MISSING] ${file}"
+              fi
+            done
+            echo ""
+
+            echo "== Placeholder Presence in infra/gcp/k8s =="
+            placeholders=(
+              "__K8S_NAMESPACE__"
+              "__IMAGE_API__"
+              "__IMAGE_WEB__"
+              "__DOMAIN__"
+              "__STATIC_IP_NAME__"
+              "__GSA_API__"
+              "__GSA_WEB__"
+              "__GCP_SQL_INSTANCE_CONNECTION_NAME__"
+            )
+            for ph in "${placeholders[@]}"; do
+              count="$(grep -R "${ph}" infra/gcp/k8s | wc -l | tr -d ' ')"
+              echo "${ph}: ${count}"
+            done
+            echo ""
+
+            echo "== Secret Presence (values hidden) =="
+            required_vars=(
+              GCP_PROJECT_ID
+              GCP_REGION
+              GKE_CLUSTER
+              GKE_NAMESPACE
+              IMAGE_API_REPO
+              IMAGE_WEB_REPO
+              GCP_SQL_INSTANCE_CONNECTION_NAME
+              APP_DOMAIN
+              GCP_STATIC_IP_NAME
+              GSA_API
+              GSA_WEB
+              WORKLOAD_IDENTITY_PROVIDER
+              GCP_SERVICE_ACCOUNT
+            )
+            for key in "${required_vars[@]}"; do
+              value="${!key:-}"
+              if [[ -n "${value}" ]]; then
+                echo "[SET] ${key}"
+              else
+                echo "[MISSING] ${key}"
+              fi
+            done
+          } > "${REPORT}"
+
+      - name: Upload preflight diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-report
+          path: preflight-report.txt
+          if-no-files-found: error
+
+  deploy:
+    name: Build, Push and Deploy to GKE
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ secrets.GCP_REGION }}
+      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
+      GKE_NAMESPACE: ${{ secrets.GKE_NAMESPACE }}
+      IMAGE_API_REPO: ${{ secrets.IMAGE_API }}
+      IMAGE_WEB_REPO: ${{ secrets.IMAGE_WEB }}
+      GCP_SQL_INSTANCE_CONNECTION_NAME: ${{ secrets.GCP_SQL_INSTANCE_CONNECTION_NAME }}
+      APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+      GCP_STATIC_IP_NAME: ${{ secrets.GCP_STATIC_IP_NAME }}
+      GSA_API: ${{ secrets.GSA_API }}
+      GSA_WEB: ${{ secrets.GSA_WEB }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev --quiet
+
+      - name: Resolve image tags
+        run: |
+          echo "API_IMAGE=${IMAGE_API_REPO}:${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "WEB_IMAGE=${IMAGE_WEB_REPO}:${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "API_IMAGE_LATEST=${IMAGE_API_REPO}:latest" >> "${GITHUB_ENV}"
+          echo "WEB_IMAGE_LATEST=${IMAGE_WEB_REPO}:latest" >> "${GITHUB_ENV}"
+
+      - name: Build and push API image
+        working-directory: apps/api
+        run: |
+          docker build -t "${API_IMAGE}" -t "${API_IMAGE_LATEST}" .
+          docker push "${API_IMAGE}"
+          docker push "${API_IMAGE_LATEST}"
+
+      - name: Build and push WEB image
+        working-directory: apps/web
+        run: |
+          docker build -t "${WEB_IMAGE}" -t "${WEB_IMAGE_LATEST}" .
+          docker push "${WEB_IMAGE}"
+          docker push "${WEB_IMAGE_LATEST}"
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GCP_REGION }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Render Kubernetes manifests
+        run: |
+          rm -rf rendered-k8s
+          mkdir -p rendered-k8s
+          cp infra/gcp/k8s/*.yaml rendered-k8s/
+
+          for file in rendered-k8s/*.yaml; do
+            sed -i "s|__K8S_NAMESPACE__|${GKE_NAMESPACE}|g" "${file}"
+            sed -i "s|__IMAGE_API__|${API_IMAGE}|g" "${file}"
+            sed -i "s|__IMAGE_WEB__|${WEB_IMAGE}|g" "${file}"
+            sed -i "s|__GCP_SQL_INSTANCE_CONNECTION_NAME__|${GCP_SQL_INSTANCE_CONNECTION_NAME}|g" "${file}"
+            sed -i "s|__DOMAIN__|${APP_DOMAIN}|g" "${file}"
+            sed -i "s|__STATIC_IP_NAME__|${GCP_STATIC_IP_NAME}|g" "${file}"
+            sed -i "s|__GSA_API__|${GSA_API}|g" "${file}"
+            sed -i "s|__GSA_WEB__|${GSA_WEB}|g" "${file}"
+          done
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f rendered-k8s/namespace.yaml
+          kubectl apply -f rendered-k8s/serviceaccounts.yaml
+          kubectl apply -f rendered-k8s/storage-pvc.yaml
+          kubectl apply -f rendered-k8s/api-deployment.yaml
+          kubectl apply -f rendered-k8s/web-deployment.yaml
+          kubectl apply -f rendered-k8s/services.yaml
+          kubectl apply -f rendered-k8s/ingress.yaml
+          kubectl apply -f rendered-k8s/hpa-web.yaml
+
+      - name: Verify rollout
+        run: |
+          kubectl -n "${GKE_NAMESPACE}" rollout status deployment/whatsapp-api --timeout=300s
+          kubectl -n "${GKE_NAMESPACE}" rollout status deployment/whatsapp-web --timeout=300s
+          kubectl -n "${GKE_NAMESPACE}" get ingress wa-ingress

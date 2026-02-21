@@ -1,0 +1,31 @@
+project_id = "tu-project-id"
+region     = "us-central1"
+environment = "prod"
+
+domain           = "app.tu-dominio.com"
+dns_managed_zone = "tu-managed-zone"
+enable_dns_record = true
+
+github_repository = "studioiffects/whatsapp_platform_v1"
+
+subnet_gke_cidr   = "10.40.0.0/20"
+subnet_proxy_cidr = "10.40.16.0/24"
+pods_cidr         = "10.44.0.0/14"
+services_cidr     = "10.48.0.0/20"
+
+gke_release_channel     = "REGULAR"
+gke_node_machine_type   = "e2-standard-4"
+gke_node_min_count      = 1
+gke_node_max_count      = 6
+gke_node_disk_size_gb   = 100
+gke_namespace           = "whatsapp-prod"
+
+sql_database_name       = "whatsapp_platform"
+sql_database_user       = "wa_app_user"
+sql_tier                = "db-custom-2-8192"
+sql_disk_size_gb        = 100
+sql_availability_type   = "REGIONAL"
+sql_backup_start_time   = "03:00"
+sql_deletion_protection = true
+
+bucket_force_destroy = false
